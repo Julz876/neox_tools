@@ -1,25 +1,23 @@
-import ctypes, zlib, zstandard, lz4.block, zipfile
+import ctypes, zlib, zstandard, lz4.block, zipfile, os, platform
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+from cryptography.hazmat.backends import default_backend
 
 def decompression_algorithm(zflag=0):
-    match zflag:
-        case 0:
-            return "NONE"
-        case 1:
-            return "ZLIB"
-        case 2:
-            return "LZ4"
-        case 3:
-            return "ZSTANDARD"
-    raise Exception("ERROR IN DECOMPRESSON ALGORITHM")
+    if zflag == 0:
+        return "NONE"
+    elif zflag == 1:
+        return "ZLIB"
+    elif zflag == 2:
+        return "LZ4"
+    elif zflag == 3:
+        return "ZSTANDARD"
+    raise Exception("ERROR IN DECOMPRESSION ALGORITHM")
 
 def init_rotor():
-    asdf_dn = 'j2h56ogodh3se'
-    asdf_dt = '=dziaq.'
-    asdf_df = '|os=5v7!"-234'
-    asdf_tm = asdf_dn * 4 + (asdf_dt + asdf_dn + asdf_df) * 5 + '!' + '#' + asdf_dt * 7 + asdf_df * 2 + '*' + '&' + "'"
-    import rotor
-    rot = rotor.newrotor(asdf_tm)
-    return rot
+    key = b'sixteen byte key'  # Replace this with the appropriate key
+    cipher = Cipher(algorithms.AES(key), modes.ECB(), backend=default_backend())
+    encryptor = cipher.encryptor()
+    return encryptor
 
 def _reverse_string(s):
     l = list(s)
@@ -28,16 +26,26 @@ def _reverse_string(s):
     return bytes(l)
 
 def nxs_unpack(data):
+    print(f"Operating System: {platform.system()}")
+    print(f"Architecture: {platform.architecture()}")
+
     wrapped_key = ctypes.create_string_buffer(4)
     data_in = ctypes.create_string_buffer(data[20:])
 
     if os.name == "posix":
-        liblinux = ctypes.CDLL("./dll/libpubdecrypt.so")
+        try:
+            liblinux = ctypes.CDLL("./dll/libpubdecrypt.so")
+        except OSError as e:
+            raise Exception(f"Error loading DLL on POSIX system: {e}")
         returning = liblinux.public_decrypt(data_in, wrapped_key)
     elif os.name == "nt":
-        libwindows = ctypes.CDLL("./dll/libpubdecrypt.dll")
+        try:
+            libwindows = ctypes.CDLL('./dll/libpubdecrypt.dll')
+        except OSError as e:
+            raise Exception(f"Error loading DLL on Windows: {e}")
         returning = libwindows.public_decrypt(data_in, wrapped_key)
-
+    else:
+        raise Exception("Unsupported operating system.")
 
     ephemeral_key = int.from_bytes(wrapped_key.raw, "little")
 
@@ -54,24 +62,19 @@ def nxs_unpack(data):
     return decrypted
 
 def zflag_decompress(flag, data, origlength=0):
-    match flag:
-        case 1:
-            return zlib.decompress(data, bufsize=origlength)
-        case 2:
-            return lz4.block.decompress(data,uncompressed_size=origlength)
-        case 3:
-            return zstandard.ZstdDecompressor().decompress(data)
+    if flag == 1:
+        return zlib.decompress(data, bufsize=origlength)
+    elif flag == 2:
+        return lz4.block.decompress(data, uncompressed_size=origlength)
+    elif flag == 3:
+        return zstandard.ZstdDecompressor().decompress(data)
     return data
 
 def special_decompress(flag, data):
-    match flag:
-        case "rot":
-            rotor = init_rotor()
-            return _reverse_string(zlib.decompress(rotor.decrypt(data)))
-            
-        case "nxs3":
-            buf = nxs_unpack(data)
-            return lz4.block.decompress(buf, int.from_bytes(data[16:20], "little"))
+    if flag == "rot":
+        rotor = init_rotor()
+        return _reverse_string(zlib.decompress(rotor.update(data)))
+    elif flag == "nxs3":
+        buf = nxs_unpack(data)
+        return lz4.block.decompress(buf, int.from_bytes(data[16:20], "little"))
     return data
-            
-    
